@@ -85,7 +85,7 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
         """
         # use 1% of users for validation, with a floor
         num_users = train.shape[0]
-        num_validation_users = max(num_users/100,30)
+        num_validation_users = max(num_users/100,10)
         # ensure reasonable expected number of updates per validation user
         validation_iters = 100*num_users/num_validation_users
         # and reasonable number of validation cycles
@@ -121,7 +121,7 @@ def main():
     # load training set as scipy sparse matrix
     train = load_sparse_matrix(file_format,filepath)
 
-    model = WARPMFRecommender(d=100, gamma=0.01, C=100.0, batch_size=100, max_iters=20000, validation_iters = 200, sample_item_rate=0.01)
+    model = WARPMFRecommender(d=100, gamma=0.01, C=100.0, batch_size=50, max_iters=20000, validation_iters = 200, sample_item_rate=0.01)
     model.fit(train)
 
     save_recommender(model,outfile)

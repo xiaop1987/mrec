@@ -249,9 +249,9 @@ class WARP(object):
                 prec, rmse = self.estimate_precision(decomposition,train,validation)
                 precs.append(prec)
                 print '{0}: validation precision = {1:.3f}, rmse = {2:.3f}'.format(it,precs[-1], rmse)
-                if len(precs) > 10 and precs[-1] < precs[-2] and precs[-2] < precs[-3]:
-                    print 'validation precision got worse twice, terminating'
-                    break
+               #if len(precs) > 10 and precs[-1] < precs[-2] and precs[-2] < precs[-3]:
+               #    print 'validation precision got worse twice, terminating'
+               #    break
             tot_trials += self.compute_updates(train,decomposition,updates)
             decomposition.apply_updates(updates,self.gamma,self.C)
 
