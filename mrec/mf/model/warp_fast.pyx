@@ -6,6 +6,7 @@ cimport numpy as np
 
 import numpy as np
 import scipy
+import random
 
 cdef extern from "stdlib.h":
     int rand() nogil
