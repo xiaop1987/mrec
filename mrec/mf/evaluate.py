@@ -1,6 +1,50 @@
 def retrain_recommender(model,dataset):
     model.fit(dataset.X)
 
+class load_splits(object):
+    '''
+    Should return train_data,test_users,test_data
+
+    Parameters
+    ----------
+    split_dir
+    num_splits
+
+    Returns
+    -------
+
+    '''
+    def __init__(self, split_dir, num_splits):
+        self.split_dir = split_dir
+        self.num_splits = num_splits
+
+    def __call__(self):
+        from mrec import load_sparse_matrix
+        import random
+        train = load_sparse_matrix('csv', self.split_dir)
+
+        num_users = train.shape[0]
+        num_validation_users = max(num_users/100,10)
+        # ensure reasonable expected number of updates per validation user
+        validation_iters = 100*num_users/num_validation_users
+        # and reasonable number of validation cycles
+        max_iters = 30*validation_iters
+
+        print num_validation_users,'validation users'
+        print validation_iters,'validation iters'
+        print max_iters,'max_iters'
+
+        validation = dict()
+        users = list()
+        for u in xrange(num_validation_users):
+            positive = np.where(train[u].data > 0)[0]
+            hidden = random.sample(positive,positive.shape[0]/2)
+            if hidden:
+                train[u].data[hidden] = 0
+                validation[u] = train[u].indices[hidden]
+                users.append(u)
+        return train, users, validation
+
 if __name__ == '__main__':
 
     try:
@@ -23,14 +67,14 @@ if __name__ == '__main__':
         raise SystemExit
 
     print 'doing a grid search for regularization parameters...'
-    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iter':[100000],'validation_iters':[500]}
-    models = [WARPMFRecommender(**a) for a in ParameterGrid(params)]
+    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[100000],'validation_iters':[2000]}
+   models = [WARPMFRecommender(**a) for a in ParameterGrid(params)]
 
-    for train in glob:
-        # get test
-        # load em both up
-        # put them into something that returns train,test.keys(),test in a generator()
-        # test is a dict id->[id,id,...]
+#   for train in glob:
+#       # get test
+#       # load em both up
+#       # put them into something that returns train,test.keys(),test in a generator()
+#       # test is a dict id->[id,id,...]
 
     if opts.main_split_dir:
         generate_main_metrics = generate_metrics(get_known_items_from_dict,compute_main_metrics)

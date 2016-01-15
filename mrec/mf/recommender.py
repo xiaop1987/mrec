@@ -8,10 +8,9 @@ try:
 except ImportError:
     import pickle
 import numpy as np
-from itertools import izip
-from scipy.sparse import csr_matrix
 
 from mrec.base_recommender import BaseRecommender
+
 
 class MatrixFactorizationRecommender(BaseRecommender):
     """
@@ -220,7 +219,8 @@ class MatrixFactorizationRecommender(BaseRecommender):
                                               user_end,
                                               max_items,
                                               return_scores=True,
-                                              show_progress=False):
+                                              show_progress=False,
+                                              recommend_known_item = True):
         """
         Select recommendations given predicted scores/ratings.
 
@@ -247,7 +247,8 @@ class MatrixFactorizationRecommender(BaseRecommender):
             Each entry is a list of (idx,score) pairs if return_scores is True,
             else just a list of idxs.
         """
-        r = np.array(self._zero_known_item_scores(r,dataset[user_start:user_end,:]))
+        if not recommend_known_item:
+            r = np.array(self._zero_known_item_scores(r,dataset[user_start:user_end,:]))
         recs = [[] for u in xrange(user_start,user_end)]
         for u in xrange(user_start,user_end):
             ux = u - user_start
@@ -258,6 +259,4 @@ class MatrixFactorizationRecommender(BaseRecommender):
                 recs[ux] = [(i,ru[i]) for i in ru.argsort()[::-1] if ru[i] > 0][:max_items]
             else:
                 recs[ux] = [i for i in ru.argsort()[::-1] if ru[i] > 0][:max_items]
-        if show_progress:
-            print
         return recs

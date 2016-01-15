@@ -6,6 +6,7 @@ from mrec.evaluation import metrics
 from recommender import MatrixFactorizationRecommender
 from model.warp import WARP
 
+
 class WARPMFRecommender(MatrixFactorizationRecommender):
     """
     Learn matrix factorization optimizing the WARP loss.
@@ -22,18 +23,19 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
         Mini batch size for SGD updates.
     positive_thresh: float
         Consider an item to be "positive" i.e. liked if its rating is at least this.
-    max_trials : int
+    max_iters : int
         Number of attempts allowed to find a violating negative example during updates.
-        In practice it means that we optimize for ranks 1 to max_trials-1.
+        In practice it means that we optimize for ranks 1 to max_iters-1.
     """
 
-    def __init__(self,d,gamma,C,batch_size=10,positive_thresh=0.00001,max_trials=50):
+    def __init__(self,d,gamma,C,batch_size=10,positive_thresh=0.00001,max_iters=50, validation_iters = 100):
         self.d = d
         self.gamma = gamma
         self.C = C
         self.batch_size = batch_size
         self.positive_thresh = positive_thresh
-        self.max_trials = max_trials
+        self.max_iters = max_iters
+        self.validation_iters = validation_iters
 
     def fit(self,train,item_features=None):
         """
@@ -47,9 +49,9 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
             Features for each item in the dataset, ignored here.
         """
         max_iters,validation_iters,validation = self.create_validation_set(train)
-        model = WARP(self.d,self.gamma,self.C,max_iters,validation_iters,self.batch_size,self.positive_thresh,self.max_trials)
+        model = WARP(self.d, self.gamma, self.C, self.max_iters, self.validation_iters,self.batch_size,self.positive_thresh)
         self.description = 'WARPMF({0})'.format(model)
-        model.fit(train,validation)
+        model.fit(train, validation)
 
         self.U = model.U_
         self.V = model.V_
@@ -75,7 +77,7 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
         """
         # use 1% of users for validation, with a floor
         num_users = train.shape[0]
-        num_validation_users = max(num_users/100,100)
+        num_validation_users = max(num_users/100,10)
         # ensure reasonable expected number of updates per validation user
         validation_iters = 100*num_users/num_validation_users
         # and reasonable number of validation cycles
@@ -107,7 +109,7 @@ def main():
     # load training set as scipy sparse matrix
     train = load_sparse_matrix(file_format,filepath)
 
-    model = WARPMFRecommender(d=100,gamma=0.01,C=100.0,batch_size=10)
+    model = WARPMFRecommender(d=100, gamma=0.01, C=100.0, batch_size=10)
     model.fit(train)
 
     save_recommender(model,outfile)

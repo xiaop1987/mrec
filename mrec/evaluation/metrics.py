@@ -63,7 +63,6 @@ def run_evaluation(models,retrain,get_split,num_runs,evaluation_func):
             retrain(model,train)
             run_metrics = evaluation_func(model,train,users,test)
             for m,val in run_metrics.iteritems():
-                print m,val
                 metrics[i][m].append(val)
     return metrics
 
@@ -112,8 +111,8 @@ def print_report(models,metrics):
 def evaluate(model,train,users,get_known_items,compute_metrics):
     avg_metrics = defaultdict(float)
     count = 0
-    for u in users:
-        recommended = [r for r,_ in model.recommend_items(train,u,max_items=20)]
+    recommended_list = model.range_recommend_items(train, users[0], users[-1], max_items=30,return_scores=False)
+    for u, recommended in enumerate(recommended_list):
         metrics = compute_metrics(recommended,get_known_items(u))
         if metrics:
             for m,val in metrics.iteritems():
@@ -126,12 +125,13 @@ def evaluate(model,train,users,get_known_items,compute_metrics):
 # collections of metrics
 
 def compute_main_metrics(recommended,known):
-    if not known:
+    if not known.any():
         return None
     return {'prec@5':prec(recommended,known,5),
             'prec@10':prec(recommended,known,10),
             'prec@15':prec(recommended,known,15),
             'prec@20':prec(recommended,known,20),
+            'prec@30':prec(recommended,known,30),
             'mrr':rr(recommended,known)}
 
 def compute_hit_rate(recommended,known):
@@ -165,10 +165,13 @@ def prec(predicted,true,k,ignore_missing=False):
     """
     if len(predicted) == 0:
         return 0
+
     correct = len(set(predicted[:k]).intersection(set(true)))
     num_predicted = k
     if len(predicted) < k and ignore_missing:
         num_predicted = len(predicted)
+    if len(true) < num_predicted:
+        num_predicted = len(true)
     return float(correct)/num_predicted
 
 def hit_rate(predicted,true,k):

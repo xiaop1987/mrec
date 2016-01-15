@@ -197,7 +197,7 @@ class WARP(object):
                 prec = self.estimate_precision(decomposition,train,validation)
                 precs.append(prec)
                 print '{0}: validation precision = {1:.3f}'.format(it,precs[-1])
-                if len(precs) > 3 and precs[-1] < precs[-2] and precs[-2] < precs[-3]:
+                if len(precs) > 10 and precs[-1] < precs[-2] and precs[-2] < precs[-3] and precs[-3] < precs[-4]:
                     print 'validation precision got worse twice, terminating'
                     break
             tot_trials += self.compute_updates(train,decomposition,updates)
@@ -286,6 +286,6 @@ class WARP(object):
                 actual = validation[u]
             else:
                 actual = train[u].indices[train[u].data > 0]
-            prec += metrics.prec(predicted,actual,k)
+            prec += metrics.prec(predicted,actual,k, True)
         return float(prec)/len(rows)
 

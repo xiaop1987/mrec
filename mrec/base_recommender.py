@@ -5,6 +5,7 @@ except ImportError:
 import numpy as np
 from scipy.sparse import csr_matrix
 
+
 class BaseRecommender(object):
     """
     Minimal interface to be implemented by recommenders, along with
