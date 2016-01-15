@@ -38,7 +38,7 @@ class load_splits(object):
         users = list()
         for u in xrange(num_validation_users):
             positive = np.where(train[u].data > 0)[0]
-            hidden = random.sample(positive,positive.shape[0]/2)
+            hidden = random.sample(positive, positive.shape[0]/2)
             if hidden:
                 train[u].data[hidden] = 0
                 validation[u] = train[u].indices[hidden]
@@ -66,9 +66,9 @@ if __name__ == '__main__':
         parser.print_help()
         raise SystemExit
 
-    print 'doing a grid search for regularization parameters...'
-    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[100000],'validation_iters':[2000]}
-   models = [WARPMFRecommender(**a) for a in ParameterGrid(params)]
+    print 'Doing a grid search for regularization parameters...'
+    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[20000],'validation_iters':[2000], 'batch_size':[1, 10]}
+    models = [WARPMFRecommender(**a) for a in ParameterGrid(params)]
 
 #   for train in glob:
 #       # get test

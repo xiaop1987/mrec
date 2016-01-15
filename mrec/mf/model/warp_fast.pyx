@@ -19,7 +19,8 @@ def warp_sample(np.ndarray[np.float_t,ndim=2] U,
                 np.ndarray[np.int32_t,ndim=1] indices,
                 np.ndarray[np.int32_t,ndim=1] indptr,
                 positive_thresh,
-                max_trials):
+                max_trials,
+                selected_items = None):
     """
     Sample a user and a violating pair of positive and negative (lower- or un-rated)
     items given the current user and item factors.
@@ -66,21 +67,22 @@ def warp_sample(np.ndarray[np.float_t,ndim=2] U,
 
     while True:
         u,ix,i = sample_positive_example(positive_thresh,num_users,vals,indices,indptr)
-        j,N = sample_violating_negative_example(U,V,vals,indices,indptr[u],indptr[u+1],u,ix,i,max_trials)
+        j,N = sample_violating_negative_example(U, V, vals, indices, indptr[u], indptr[u+1],u,ix,i,max_trials, selected_items)
         tot_trials += N
         if j >= 0:
-            return u,i,j,N,tot_trials
+            return u, i, j, N, tot_trials
 
 cdef sample_violating_negative_example(np.ndarray[np.float_t,ndim=2] U,
-                                        np.ndarray[np.float_t,ndim=2] V,
-                                        np.ndarray[np.float_t,ndim=1] vals,
-                                        np.ndarray[np.int32_t,ndim=1] indices,
-                                        begin,
-                                        end,
-                                        u,
-                                        ix,
-                                        i,
-                                        max_trials):
+                                       np.ndarray[np.float_t,ndim=2] V,
+                                       np.ndarray[np.float_t,ndim=1] vals,
+                                       np.ndarray[np.int32_t,ndim=1] indices,
+                                       begin,
+                                       end,
+                                       u,
+                                       ix,
+                                       i,
+                                       max_trials,
+                                       selected_items = None):
     """
     Sample a violating negative item given the current item and user factors.
 
@@ -122,14 +124,18 @@ cdef sample_violating_negative_example(np.ndarray[np.float_t,ndim=2] U,
     num_items = V.shape[0]
 
     r = U[u].dot(V[i])
-    for N in xrange(1,max_trials):
+    for N in xrange(1, max_trials):
         # find j!=i s.t. data[u,j] < data[u,i]
-        j = sample_negative_example(num_items,vals,indices,begin,end,ix)
+        j = 0
+        if selected_items != None:
+            j = sample_negative_example_limited_item(num_items,vals,indices,begin,end,ix,selected_items)
+        else:
+            j = sample_negative_example(num_items,vals,indices,begin,end,ix)
         if r - U[u].dot(V[j]) < 1:
             # found a violating pair
-            return j,N
+            return j, N
     # no violating pair found after max_trials, give up
-    return -1,max_trials
+    return -1, max_trials
 
 cdef sample_negative_example(num_items,
                              np.ndarray[np.float_t,ndim=1] vals,
@@ -166,6 +172,28 @@ cdef sample_negative_example(num_items,
     while True:
         # sample item uniformly with replacement
         j = rand() % num_items
+        found = 0
+        for jx in xrange(begin,end):
+            if indices[jx] == j:
+                found = 1
+                break
+        if not found or vals[jx] < vals[ix]:
+            return j
+
+
+cdef sample_negative_example_limited_item(num_items,
+                             np.ndarray[np.float_t,ndim=1] vals,
+                             np.ndarray[np.int32_t,ndim=1] indices,
+                             begin,
+                             end,
+                             ix,
+                             selected_items
+                             ):
+    cdef unsigned int j, jx, found
+
+    while True:
+        # sample item uniformly with replacement
+        j = random.choice(selected_items)
         found = 0
         for jx in xrange(begin,end):
             if indices[jx] == j:

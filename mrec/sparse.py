@@ -7,6 +7,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, coo_matrix
 from scipy.io import mmread
 
+
 def loadtxt(filepath,comments='#',delimiter=None,skiprows=0,usecols=None,index_offset=1):
     """
     Load a scipy sparse matrix from simply formatted data such as TSV, handles
@@ -36,14 +37,14 @@ def loadtxt(filepath,comments='#',delimiter=None,skiprows=0,usecols=None,index_o
     mat : scipy.sparse.csr_matrix
         The sparse matrix.
     """
-    d = np.loadtxt(filepath,comments=comments,delimiter=delimiter,skiprows=skiprows,usecols=usecols)
+    d = np.loadtxt(filepath, comments=comments, delimiter=delimiter, skiprows=skiprows, usecols=usecols)
     if d.shape[1] < 3:
         raise ValueError('invalid number of columns in input')
-    row = d[:,0]-index_offset
-    col = d[:,1]-index_offset
-    data = d[:,2]
-    shape = (max(row)+1,max(col)+1)
-    return csr_matrix((data,(row,col)),shape=shape)
+    row = d[:, 0]-index_offset
+    col = d[:, 1]-index_offset
+    data = d[:, 2]
+    shape = (max(row)+1, max(col)+1)
+    return csr_matrix((data, (row, col)), shape=shape)
 
 def savez(d,file):
     """
