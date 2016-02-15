@@ -11,7 +11,6 @@ from collections import defaultdict
 # classes to access known items for each test user
 
 class get_known_items_from_dict(object):
-
     def __init__(self,data):
         self.data = data
 
@@ -57,14 +56,22 @@ def run_evaluation(models,retrain,get_split,num_runs,evaluation_func):
     A number of suitable functions are already available in the module.
     """
     metrics = [defaultdict(list) for m in models]
+    prec_history = {}
     for _ in xrange(num_runs):
         train,users,test = get_split()
         for i,model in enumerate(models):
+            model_name = str(model.model)
+            print "Running model:[%s]" % model_name
             retrain(model,train)
             run_metrics = evaluation_func(model,train,users,test)
             for m,val in run_metrics.iteritems():
                 metrics[i][m].append(val)
-    return metrics
+            if prec_history.has_key(model_name):
+                prec_history[model_name].append(model.model.prec_history)
+            else:
+                prec_history[model_name] = [model.model.prec_history]
+
+    return metrics, prec_history
 
 def generate_metrics(get_known_items,compute_metrics):
     def evaluation_func(model,train,users,test):
@@ -93,12 +100,71 @@ def sort_metrics_by_name(names):
             ret.append(name)
     return ret
 
+def load_raw_rating(item_id_name_map):
+    raw_rating_file = "E:\\test_data\\fake_data\\ratings\\0"
+    ret = {}
+    with open(raw_rating_file, 'r') as f:
+        for line in f.readlines():
+            line = line[0:-1]
+            temp = line.split(',')
+            user_id = temp[0]
+            item_id = int(temp[1])
+            item_name = item_id_name_map[item_id]
+            rating = int(temp[2])
+            if not ret.has_key(user_id):
+                ret[user_id] = [(item_name, rating)]
+            else:
+                ret[user_id].append((item_name, rating))
+    for key, value in ret.items():
+        temp = sorted(value, lambda x,y: cmp(x[1],y[1]), reverse=True)
+        ret[key] = '|'.join(map(lambda x: "%s:%f" % (x[0], x[1]), temp))
+    return ret
+
+def load_item_id_name_map():
+    map_file = "E:\\test_data\\fake_data\\movies_v.csv"
+    ret = {}
+    with open(map_file, 'r') as f:
+        for line in f.readlines():
+            line = line[0:-1]
+            temp = line.split(',')
+            item_id= temp[0]
+            movie_name = temp[1]
+            movie_type = temp[2]
+            ret[int(item_id)] = "%s(%s)" % (movie_name, movie_type)
+    return ret
+
+
+def make_rec_result_readable(rec_result, item_id_name_map):
+    ret = {}
+    for key, rec_item_list in rec_result.items():
+        readable_rec_item = []
+        for rec_item in rec_item_list:
+            readable_rec_item.append(item_id_name_map[rec_item + 1])
+        ret[key + 1] = '|'.join(readable_rec_item)
+    return ret
+
+def gen_compare_file(readable_rec_result, raw_rating):
+    with open('E:\\test_data\\fake_data\\cmp.csv', 'w') as f:
+        for key in readable_rec_result.keys():
+            raw = raw_rating[str(key)]
+            new = readable_rec_result[key]
+            line = "%s,%s\n" % (raw, new)
+            f.write(line)
+
 def print_report(models,metrics):
     """
     Call this to print out the metrics returned by run_evaluation().
     """
+  ##item_id_name_map = load_item_id_name_map()
+  ##raw_rating = load_raw_rating(item_id_name_map)
+  ##print item_id_name_map
+  ##print raw_rating
+  ##to_recommend_users = [0, 1, 2, 3]
     for model,results in zip(models,metrics):
         print model
+      ##rec_result = model.recommend(to_recommend_users, 10)
+      ##readable_rec_result = make_rec_result_readable(rec_result, item_id_name_map)
+      ##gen_compare_file(readable_rec_result, raw_rating)
         if hasattr(model,'similarity_matrix'):
             nnz = model.similarity_matrix.nnz
             num_items = model.similarity_matrix.shape[0]
@@ -111,8 +177,8 @@ def print_report(models,metrics):
 def evaluate(model,train,users,get_known_items,compute_metrics):
     avg_metrics = defaultdict(float)
     count = 0
-    recommended_list = model.range_recommend_items(train, users[0], users[-1], max_items=30,return_scores=False)
-    for u, recommended in enumerate(recommended_list):
+    for u in users:
+        recommended= model.recommend_items(train, u, max_items=30, return_scores=False)
         metrics = compute_metrics(recommended,get_known_items(u))
         if metrics:
             for m,val in metrics.iteritems():
@@ -141,7 +207,7 @@ def compute_hit_rate(recommended,known):
 
 # individual metrics
 
-def prec(predicted,true,k,ignore_missing=False):
+def prec(predicted,actual_item,k,ignore_missing=False):
     """
     Compute precision@k.
 
@@ -149,7 +215,7 @@ def prec(predicted,true,k,ignore_missing=False):
     ==========
     predicted : array like
         Predicted items.
-    true : array like
+    actual_item : array like
         True items.
     k : int
         Measure precision@k.
@@ -166,12 +232,12 @@ def prec(predicted,true,k,ignore_missing=False):
     if len(predicted) == 0:
         return 0
 
-    correct = len(set(predicted[:k]).intersection(set(true)))
+    correct = len(set(predicted[:k]).intersection(set(actual_item)))
     num_predicted = k
     if len(predicted) < k and ignore_missing:
         num_predicted = len(predicted)
-    if len(true) < num_predicted:
-        num_predicted = len(true)
+    if len(actual_item) < num_predicted:
+        num_predicted = len(actual_item)
     return float(correct)/num_predicted
 
 def hit_rate(predicted,true,k):

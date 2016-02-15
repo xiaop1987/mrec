@@ -29,7 +29,8 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
     """
 
     def __init__(self,d,gamma,C,batch_size=10,positive_thresh=0.00001,max_iters=1000,
-                 validation_iters = 100, max_trials = 50, sample_item_rate = 1.0):
+                 validation_iters = 100, max_trials = 50, sample_item_rate = 1.0,
+                 model_type = 'WARP'):
         self.d = d
         self.gamma = gamma
         self.C = C
@@ -39,6 +40,22 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
         self.validation_iters = validation_iters
         self.max_trials = max_trials
         self.sample_item_rate = sample_item_rate
+        self.model_type = model_type
+        self.model = None
+        if self.model_type == 'WARP':
+            self.model = WARP(self.d, self.gamma, self.C, self.max_iters,
+                              self.validation_iters,self.batch_size, self.positive_thresh,
+                              self.max_trials)
+        elif self.model_type == 'WARPLimitedItem':
+            self.model = WARPLimitedItem(self.d, self.gamma, self.C, self.max_iters,
+                                         self.validation_iters,self.batch_size, self.positive_thresh,
+                                         self.max_trials, self.sample_item_rate)
+        else:
+            print "Invalid model type:[%s]" % self.model_type
+            sys.exit(2)
+
+    def recommend(self, users, topK):
+        return self.model.recommend(users, topK)
 
     def fit(self,train,item_features=None):
         """
@@ -52,19 +69,16 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
             Features for each item in the dataset, ignored here.
         """
         max_iters,validation_iters,validation = self.create_validation_set(train)
-       #model = WARP(self.d, self.gamma, self.C, self.max_iters,
-       #             self.validation_iters,self.batch_size, self.positive_thresh,
-       #             self.max_trials)
-        model = WARPLimitedItem(self.d, self.gamma, self.C, self.max_iters,
-                     self.validation_iters,self.batch_size, self.positive_thresh,
-                     self.max_trials, self.sample_item_rate)
-        self.description = 'WARPMF({0})'.format(model)
-        model.fit(train, validation)
+        self.description = 'WARPMF({0})'.format(self.model)
+        print "Start model fit with param:[%s]" % self.description
+        self.model.fit(train, validation)
 
-        self.U = model.U_
-        self.V = model.V_
+        self.U = self.model.U_
+        self.V = self.model.V_
 
-    def create_validation_set(self,train):
+
+    @staticmethod
+    def create_validation_set(train):
         """
         Hide and return half of the known items for a sample of users,
         and estimate the number of sgd iterations to run.
@@ -101,11 +115,11 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
             hidden = random.sample(positive,positive.shape[0]/2)
             if hidden:
                 train[u].data[hidden] = 0
-                index_value_list = []
-                for index in train[u].indices[hidden]:
-                    index_value_list.append((index, train.data[index]))
+               #index_value_list = []
+               #for index in train[u].indices[hidden]:
+               #    index_value_list.append((index, 0))
                 validation[u] = train[u].indices[hidden]
-                validation[u] = index_value_list
+               #validation[u] = index_value_list
 
         return max_iters,validation_iters,validation
 
@@ -121,10 +135,10 @@ def main():
     # load training set as scipy sparse matrix
     train = load_sparse_matrix(file_format,filepath)
 
-    model = WARPMFRecommender(d=100, gamma=0.01, C=100.0, batch_size=50, max_iters=20000, validation_iters = 200, sample_item_rate=0.01)
+    model = WARPMFRecommender(d=100, gamma=0.01, C=100.0, batch_size=10, max_iters=7001, validation_iters = 1000, sample_item_rate=0.1)
     model.fit(train)
 
-    save_recommender(model,outfile)
+    # save_recommender(model,outfile)
 
 if __name__ == '__main__':
     main()

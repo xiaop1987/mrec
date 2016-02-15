@@ -44,6 +44,7 @@ def loadtxt(filepath,comments='#',delimiter=None,skiprows=0,usecols=None,index_o
     col = d[:, 1]-index_offset
     data = d[:, 2]
     shape = (max(row)+1, max(col)+1)
+    print d
     return csr_matrix((data, (row, col)), shape=shape)
 
 def savez(d,file):

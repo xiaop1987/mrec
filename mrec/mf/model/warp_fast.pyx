@@ -132,7 +132,9 @@ cdef sample_violating_negative_example(np.ndarray[np.float_t,ndim=2] U,
             j = sample_negative_example_limited_item(num_items,vals,indices,begin,end,ix,selected_items)
         else:
             j = sample_negative_example(num_items,vals,indices,begin,end,ix)
-        if r - U[u].dot(V[j]) < 1:
+        negative_item_rating = U[u].dot(V[j])
+        if r - negative_item_rating < 1:
+           #print("ori rating: %f, selected positive item rating: %f, negative item rating: %f" % (vals[ix], r, negative_item_rating))
             # found a violating pair
             return j, N
     # no violating pair found after max_trials, give up
@@ -242,7 +244,7 @@ cdef sample_positive_example(positive_thresh,
             ix = begin + (rand() % (end-begin))
             if vals[ix] >= positive_thresh:
                 i = indices[ix]
-                return u,ix,i
+                return u, ix, i
 
 def apply_updates(np.ndarray[np.float_t,ndim=2] F,
                   np.ndarray[np.int32_t,ndim=1] rows,
@@ -267,7 +269,6 @@ def apply_updates(np.ndarray[np.float_t,ndim=2] F,
     """
  
     cdef unsigned int i, num
-    cdef float p
 
     assert(rows.shape[0] == deltas.shape[0])
 
@@ -275,10 +276,15 @@ def apply_updates(np.ndarray[np.float_t,ndim=2] F,
     for i in xrange(num):
         row = rows[i]
         delta = deltas[i]
-        F[row] += gamma*delta
-        p = sqrt(F[row].T.dot(F[row]))/C
-        if p > 1:
-            F[row] /= p  # ensure ||F[row]|| <= C
+        apply_update_core(F[row], delta, gamma, C)
+
+def apply_update_core(to_update_vector, delta_vector, gamma, C):
+    cdef float p
+    to_update_vector += gamma * delta_vector
+    p = sqrt(to_update_vector.T.dot(to_update_vector))/C
+    if p > 1:
+        to_update_vector /= p  # ensure ||F[row]|| <= C
+
 
 def warp2_sample(np.ndarray[np.float_t,ndim=2] U,
                 np.ndarray[np.float_t,ndim=2] V,

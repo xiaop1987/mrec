@@ -43,7 +43,7 @@ class SampleOperateWithLimitedItem(SampleOperate):
                                       self.positive_thresh,
                                       self.max_trials,
                                       self.selected_items)
-        return u, i, j, N, trials * self.sample_item_rate
+        return u, i, j, N, trials #* self.sample_item_rate
 
 class WARPBatchUpdate(object):
     """Collection of arrays to hold a batch of WARP sgd updates."""
@@ -108,11 +108,11 @@ class WARPDecomposition(object):
         Returns
         =======
         u : int
-            As input.
+            Sampled user id.
         i : int
-            As input.
+            Postive item id.
         j : int
-            As input.
+            Negative item id.
         dU : numpy.ndarray
             Gradient step for U[u].
         dV_pos : numpy.ndarray
@@ -120,10 +120,15 @@ class WARPDecomposition(object):
         dV_neg : numpy.ndarray
             Gradient step for V[j].
         """
-        dU = L*(self.V[i]-self.V[j])
-        dV_pos = L*self.U[u]
-        dV_neg = -L*self.U[u]
-        return u,i,j,dU,dV_pos,dV_neg
+        dU, dV_pos, dV_neg = WARPDecomposition.compute_gradient_step_core(self.V[i], self.V[j], self.U[u], L)
+        return u,i,j, dU, dV_pos, dV_neg
+
+    @staticmethod
+    def compute_gradient_step_core(positive_item_factor, negative_item_factor, user_factor, warp_loss):
+        dU = warp_loss * (positive_item_factor- negative_item_factor)
+        dV_pos = warp_loss * user_factor
+        dV_neg = -warp_loss * user_factor
+        return dU, dV_pos, dV_neg
 
     def apply_updates(self,updates,gamma,C):
         # delegate to cython implementation
@@ -188,9 +193,10 @@ class WARP(object):
         self.batch_size = batch_size
         self.positive_thresh = positive_thresh
         self.max_trials = max_trials
+        self.prec_history = []
 
     def __str__(self):
-        return 'WARPSampleItem(d={0},gamma={1},C={2},max_iters={3},validation_iters={4},batch_size={5},positive_thresh={6},' \
+        return 'WARP(d={0},gamma={1},C={2},max_iters={3},validation_iters={4},batch_size={5},positive_thresh={6},' \
                'max_trials={7})'.format(
                 self.d,
                 self.gamma,
@@ -201,6 +207,17 @@ class WARP(object):
                 self.positive_thresh,
                 self.max_trials
         )
+
+    def recommend(self, users, topK):
+      r = self.decomposition.reconstruct(users)
+      prec = 0
+      diff = 0
+      sample_count = 0
+      ret_dict = {}
+      for u,ru in izip(users,r):
+        predicted = ru.argsort()[::-1][:topK]
+        ret_dict[u]=predicted
+      return ret_dict
 
     def fit(self,train,validation=None):
         """
@@ -228,65 +245,72 @@ class WARP(object):
         self.user_count = num_rows
         self.item_count = num_cols
 
-        decomposition = WARPDecomposition(num_rows,num_cols,self.d)
+        self.decomposition = WARPDecomposition(num_rows,num_cols,self.d)
         updates = WARPBatchUpdate(self.batch_size,self.d)
-        self.precompute_warp_loss(num_cols)
+        self.warp_loss = self.precompute_warp_loss(num_cols)
 
-        self._fit(decomposition,updates,train,validation)
+        self._fit(self.decomposition,updates,train,validation)
 
-        self.U_ = decomposition.U
-        self.V_ = decomposition.V
+        self.U_ = self.decomposition.U
+        self.V_ = self.decomposition.V
 
         return self
 
     def _fit(self,decomposition,updates,train,validation):
-        precs = []
+        self.prec_history = []
         tot_trials = 0
         for it in xrange(self.max_iters):
             if it % self.validation_iters == 0:
-                print 'tot_trials',tot_trials
+                print 'Average trials for each user: %f for iteration: %d' % (tot_trials/(float(self.batch_size) * self.validation_iters), it)
                 tot_trials = 0
                 prec, rmse = self.estimate_precision(decomposition,train,validation)
-                precs.append(prec)
-                print '{0}: validation precision = {1:.3f}, rmse = {2:.3f}'.format(it,precs[-1], rmse)
+                self.prec_history.append(prec)
+                print '{0}: validation precision = {1:.3f}, rmse = {2:.3f}'.format(it,self.prec_history[-1], decomposition.U.mean())
                #if len(precs) > 10 and precs[-1] < precs[-2] and precs[-2] < precs[-3]:
                #    print 'validation precision got worse twice, terminating'
                #    break
             tot_trials += self.compute_updates(train,decomposition,updates)
             decomposition.apply_updates(updates,self.gamma,self.C)
 
-    def precompute_warp_loss(self,num_cols):
+    @staticmethod
+    def precompute_warp_loss(num_cols):
         """
         Precompute WARP loss for each possible rank:
 
             L(i) = \sum_{0,i}{1/(i+1)}
         """
         assert(num_cols>1)
-        self.warp_loss = np.ones(num_cols)
+        warp_loss = np.ones(num_cols)
         for i in xrange(1,num_cols):
-            self.warp_loss[i] = self.warp_loss[i-1]+1.0/(i+1)
+            warp_loss[i] = warp_loss[i-1]+1.0/(i+1)
+        return warp_loss
+
+    @staticmethod
+    def estimate_warp_loss(train,u,N, warp_loss):
+        num_cols = train.shape[1]
+        nnz = train.indptr[u+1]-train.indptr[u]
+        estimated_rank = (num_cols-nnz-1)/N
+        return WARP.estimate_warp_loss_core(num_cols, nnz, N, warp_loss)
+
+    @staticmethod
+    def estimate_warp_loss_core(total_item_count, current_user_count, trials, warp_loss):
+        estimated_rank = (total_item_count-current_user_count-1)/trials
+        return warp_loss[estimated_rank]
 
     def compute_updates(self,train,decomposition,updates):
         updates.clear()
         tot_trials = 0
 
-
         sample_operate = self.generate_sample_operate(train, decomposition, self.positive_thresh, self.max_trials)
         for ix in xrange(self.batch_size):
             u,i,j,N,trials = sample_operate()
             tot_trials += trials
-            L = self.estimate_warp_loss(train,u,N)
+            L = WARP.estimate_warp_loss(train,u,N, self.warp_loss)
             updates.set_update(ix,decomposition.compute_gradient_step(u,i,j,L))
         return tot_trials
 
     def generate_sample_operate(self, train, decomposition, positive_thresh, max_trials):
         return SampleOperate(train, decomposition, positive_thresh, max_trials)
-
-    def estimate_warp_loss(self,train,u,N):
-        num_cols = train.shape[1]
-        nnz = train.indptr[u+1]-train.indptr[u]
-        estimated_rank = (num_cols-nnz-1)/N
-        return self.warp_loss[estimated_rank]
 
     def estimate_precision(self,decomposition,train,validation,k=30):
         """
@@ -333,11 +357,12 @@ class WARP(object):
         for u,ru in izip(rows,r):
             predicted = ru.argsort()[::-1][:k]
             if have_validation_set:
-                actual = []
-                for (index, rating) in validation[u]:
-                    actual.append(index)
-                    diff += pow(ru[index] - rating, 2)
-                    sample_count += 1
+                actual = validation[u]
+               #actual = []
+               #for (index, rating) in validation[u]:
+               #    actual.append(index)
+               #    diff += pow(ru[index] - rating, 2)
+               #    sample_count += 1
             else:
                 actual = train[u].indices[train[u].data > 0]
             prec += metrics.prec(predicted,actual,k, True)

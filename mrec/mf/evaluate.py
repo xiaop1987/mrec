@@ -1,3 +1,5 @@
+import random
+
 def retrain_recommender(model,dataset):
     model.fit(dataset.X)
 
@@ -17,33 +19,43 @@ class load_splits(object):
     def __init__(self, split_dir, num_splits):
         self.split_dir = split_dir
         self.num_splits = num_splits
+        self.current_split = 0
+
+    def __generate_current_split_path(self):
+        return '%s/%d' % (self.split_dir, self.current_split)
 
     def __call__(self):
         from mrec import load_sparse_matrix
         import random
-        train = load_sparse_matrix('csv', self.split_dir)
+        current_split_path = self.__generate_current_split_path()
+        train = load_sparse_matrix('csv', current_split_path)
 
-        num_users = train.shape[0]
-        num_validation_users = max(num_users/100,10)
-        # ensure reasonable expected number of updates per validation user
-        validation_iters = 100*num_users/num_validation_users
-        # and reasonable number of validation cycles
-        max_iters = 30*validation_iters
+        import warp
 
-        print num_validation_users,'validation users'
-        print validation_iters,'validation iters'
-        print max_iters,'max_iters'
-
-        validation = dict()
-        users = list()
-        for u in xrange(num_validation_users):
-            positive = np.where(train[u].data > 0)[0]
-            hidden = random.sample(positive, positive.shape[0]/2)
-            if hidden:
-                train[u].data[hidden] = 0
-                validation[u] = train[u].indices[hidden]
-                users.append(u)
+        max_iters,validation_iters,validation = warp.WARPMFRecommender.create_validation_set(train)
+        users = validation.keys()
         return train, users, validation
+
+def show_prec_history_for_model(prec_history, run_number, validation_iters):
+    import matplotlib.pyplot as plt
+
+    plt.figure(figsize=(16, 8))
+    label = "abc"
+    for model_name, prec_history_list in prec_history.items():
+        iter_count = len(prec_history_list[0])
+        average_history = [0] * iter_count
+        for prec_history in prec_history_list:
+            for i, prec in enumerate(prec_history):
+                average_history[i] += prec
+        average_history = map(lambda x: x/run_number, average_history)
+        indexs = [i * validation_iters for i in range(iter_count) ]
+        plt.plot(indexs, average_history, label=model_name.split("(")[0])
+    plt.legend(loc='upper left', shadow=False)
+    plt.xlabel("iteration count")
+    plt.ylabel("prec@30")
+    plt.title("WSabie Test")
+    plt.show()
+    pass
 
 if __name__ == '__main__':
 
@@ -67,7 +79,10 @@ if __name__ == '__main__':
         raise SystemExit
 
     print 'Doing a grid search for regularization parameters...'
-    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[20000],'validation_iters':[2000], 'batch_size':[1, 10]}
+   #params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[10000],'validation_iters':[2000], 'batch_size':[10],
+   #          'model_type':['WARP', 'WARPLimitedItem'], 'sample_item_rate':[0.01], 'max_trials':[50]}
+    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[1000],'validation_iters':[200], 'batch_size':[300],
+              'model_type':['WARPLimitedItem'], 'sample_item_rate':[1], 'max_trials':[50]}
     models = [WARPMFRecommender(**a) for a in ParameterGrid(params)]
 
 #   for train in glob:
@@ -78,12 +93,13 @@ if __name__ == '__main__':
 
     if opts.main_split_dir:
         generate_main_metrics = generate_metrics(get_known_items_from_dict,compute_main_metrics)
-        main_metrics = run_evaluation(models,
+        main_metrics, prec_history = run_evaluation(models,
                                       retrain_recommender,
                                       load_splits(opts.main_split_dir,opts.num_splits),
                                       opts.num_splits,
                                       generate_main_metrics)
         print_report(models,main_metrics)
+        show_prec_history_for_model(prec_history, opts.num_splits, 1000)
 
     if opts.loo_split_dir:
         generate_hit_rate = generate_metrics(get_known_items_from_dict,compute_hit_rate)
