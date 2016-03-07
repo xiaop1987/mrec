@@ -81,8 +81,8 @@ if __name__ == '__main__':
     print 'Doing a grid search for regularization parameters...'
    #params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[10000],'validation_iters':[2000], 'batch_size':[10],
    #          'model_type':['WARP', 'WARPLimitedItem'], 'sample_item_rate':[0.01], 'max_trials':[50]}
-    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[1000],'validation_iters':[200], 'batch_size':[300],
-              'model_type':['WARPLimitedItem'], 'sample_item_rate':[1], 'max_trials':[50]}
+    params = {'d':[100],'gamma':[0.01],'C':[100],'max_iters':[300],'validation_iters':[20], 'batch_size':[300],
+              'model_type':['WARPLimitedItem', 'WARP'], 'sample_item_rate':[1], 'max_trials':[50]}
     models = [WARPMFRecommender(**a) for a in ParameterGrid(params)]
 
 #   for train in glob:

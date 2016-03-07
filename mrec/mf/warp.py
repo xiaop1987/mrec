@@ -99,7 +99,7 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
         """
         # use 1% of users for validation, with a floor
         num_users = train.shape[0]
-        num_validation_users = max(num_users/100,10)
+        num_validation_users = max(num_users/100,40)
         # ensure reasonable expected number of updates per validation user
         validation_iters = 100*num_users/num_validation_users
         # and reasonable number of validation cycles
@@ -110,16 +110,13 @@ class WARPMFRecommender(MatrixFactorizationRecommender):
         print max_iters,'max_iters'
 
         validation = dict()
-        for u in xrange(num_validation_users):
+        for i in xrange(num_validation_users):
+            u = random.randint(0, num_users - 1)
             positive = np.where(train[u].data > 0)[0]
             hidden = random.sample(positive,positive.shape[0]/2)
             if hidden:
                 train[u].data[hidden] = 0
-               #index_value_list = []
-               #for index in train[u].indices[hidden]:
-               #    index_value_list.append((index, 0))
                 validation[u] = train[u].indices[hidden]
-               #validation[u] = index_value_list
 
         return max_iters,validation_iters,validation
 
