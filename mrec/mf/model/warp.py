@@ -15,7 +15,7 @@ class SampleOperate(object):
         self.max_trials = max_trials
         self.selected_items = None
 
-    def __call__(self):
+    def __call__(self, u = None):
         # delegate to cython implementation
         return warp_sample(self.decomposition.U,
                            self.decomposition.V,
@@ -24,7 +24,8 @@ class SampleOperate(object):
                            self.train.indptr,
                            self.positive_thresh,
                            self.max_trials,
-                           self.selected_items)
+                           self.selected_items,
+                           u)
 
 class SampleOperateWithLimitedItem(SampleOperate):
     def __init__(self, train, decomposition, positive_thresh, max_trials, sample_item_rate):
@@ -33,17 +34,19 @@ class SampleOperateWithLimitedItem(SampleOperate):
         self.sample_item_rate = sample_item_rate
         self.selected_items = random.sample(range(0, item_count), int(item_count * sample_item_rate))
 
-    def __call__(self):
+    def __call__(self, u = None):
         # delegate to cython implementation
-        u,i,j,N,trials = warp_sample(self.decomposition.U,
-                                      self.decomposition.V,
-                                      self.train.data,
-                                      self.train.indices,
-                                      self.train.indptr,
-                                      self.positive_thresh,
-                                      self.max_trials,
-                                      self.selected_items)
-        return u, i, j, N, trials #* self.sample_item_rate
+       return warp_sample(self.decomposition.U,
+                                     self.decomposition.V,
+                                     self.train.data,
+                                     self.train.indices,
+                                     self.train.indptr,
+                                     self.positive_thresh,
+                                     self.max_trials,
+                                     self.selected_items,
+                                     u)
+
+       #return u, i, j, N, trials #* self.sample_item_rate
 
 class WARPBatchUpdate(object):
     """Collection of arrays to hold a batch of WARP sgd updates."""
@@ -193,7 +196,9 @@ class WARP(object):
         self.batch_size = batch_size
         self.positive_thresh = positive_thresh
         self.max_trials = max_trials
-        self.prec_history = []
+        self.train_prec_history = []
+        self.test_prec_history = []
+        self.prec_history = {}
 
     def __str__(self):
         return 'WARP(d={0},gamma={1},C={2},max_iters={3},validation_iters={4},batch_size={5},positive_thresh={6},' \
@@ -254,18 +259,23 @@ class WARP(object):
         self.U_ = self.decomposition.U
         self.V_ = self.decomposition.V
 
+        self.prec_history = {'train': self.train_prec_history,
+                             'test': self.test_prec_history}
+
         return self
 
     def _fit(self,decomposition,updates,train,validation):
-        self.prec_history = []
+        self.train_prec_history = []
+        self.test_prec_history = []
         tot_trials = 0
         for it in xrange(self.max_iters):
             if it % self.validation_iters == 0:
                 print 'Average trials for each user: %f for iteration: %d' % (tot_trials/(float(self.batch_size) * self.validation_iters), it)
                 tot_trials = 0
-                prec, rmse = self.estimate_precision(decomposition,train,validation)
-                self.prec_history.append(prec)
-                print '{0}: validation precision = {1:.3f}, rmse = {2:.3f}'.format(it,self.prec_history[-1], decomposition.U.mean())
+                train_prec, test_prec = self.estimate_precision(decomposition,train,validation)
+                self.test_prec_history.append(test_prec)
+                self.train_prec_history.append(train_prec)
+                print '{0}: validation precision of train = {1:.3f}, of test = {2:.3f}'.format(it, train_prec, test_prec)
                #if len(precs) > 10 and precs[-1] < precs[-2] and precs[-2] < precs[-3]:
                #    print 'validation precision got worse twice, terminating'
                #    break
@@ -303,16 +313,34 @@ class WARP(object):
 
         sample_operate = self.generate_sample_operate(train, decomposition, self.positive_thresh, self.max_trials)
         for ix in xrange(self.batch_size):
-            u,i,j,N,trials = sample_operate()
+            ret = sample_operate()
+            if ret == None:
+                continue
+            u,i,j,N,trials = ret
             tot_trials += trials
             L = WARP.estimate_warp_loss(train,u,N, self.warp_loss)
             updates.set_update(ix,decomposition.compute_gradient_step(u,i,j,L))
+       #sample_user_list = []
+       #for i in xrange(self.batch_size):
+       #    sample_user_list.append(random.randint(0, self.user_count - 1))
+
+       #update_user_count = 0.0
+       #for ix, u in enumerate(sample_user_list):
+       #    ret = sample_operate(u)
+       #    if ret == None:
+       #        continue
+       #    update_user_count += 1
+       #    u,i,j,N,trials = ret
+       #    tot_trials += trials
+       #    L = WARP.estimate_warp_loss(train,u,N, self.warp_loss)
+       #    updates.set_update(ix,decomposition.compute_gradient_step(u,i,j,L))
+       #print "%f percent of user updated" % (update_user_count / self.batch_size)
         return tot_trials
 
     def generate_sample_operate(self, train, decomposition, positive_thresh, max_trials):
         return SampleOperate(train, decomposition, positive_thresh, max_trials)
 
-    def estimate_precision(self,decomposition,train,validation,k=30):
+    def estimate_precision(self,decomposition,train,validation,k=150):
         """
         Compute prec@k for a sample of training rows.
 
@@ -341,33 +369,21 @@ class WARP(object):
         recommendations because we do not exclude training cols with zero
         ratings from the top-k predictions evaluated.
         """
-        if isinstance(validation,dict):
-            have_validation_set = True
-            rows = validation.keys()
-        elif isinstance(validation,(int,long)):
-            have_validation_set = False
-            rows = range(validation)
-        else:
-            raise ValueError('validation must be dict or int')
 
+        rows = validation.keys()
         r = decomposition.reconstruct(rows)
-        prec = 0
+        train_prec = 0
+        test_prec = 0
         diff = 0
         sample_count = 0
         for u,ru in izip(rows,r):
             predicted = ru.argsort()[::-1][:k]
-            if have_validation_set:
-                actual = validation[u]
-               #actual = []
-               #for (index, rating) in validation[u]:
-               #    actual.append(index)
-               #    diff += pow(ru[index] - rating, 2)
-               #    sample_count += 1
-            else:
-                actual = train[u].indices[train[u].data > 0]
-            prec += metrics.prec(predicted,actual,k, True)
-        rmse =  diff /(sample_count - 1)
-        return float(prec)/len(rows), rmse
+            actual = validation[u]
+            train_data = actual['train']
+            test_data = actual['test']
+            train_prec += metrics.prec(predicted,train_data,k, True)
+            test_prec += metrics.prec(predicted,test_data,k, True)
+        return float(train_prec)/len(rows), float(test_prec)/len(rows)
 
 class WARPLimitedItem(WARP):
     def __init__(self,
